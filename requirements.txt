@@ -5,5 +5,4 @@ langchain
 langchain_openai
 langchain_core
 typing_extensions
-asyncio
 os

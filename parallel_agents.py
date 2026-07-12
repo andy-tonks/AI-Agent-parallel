@@ -3,19 +3,41 @@ Parallel Agent Execution in LangGraph
 Running multiple agents simultaneously
 """
 
+import os
+from typing_extensions import TypedDict
+
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
 from langgraph.graph import StateGraph, START, END
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from typing_extensions import TypedDict
-from langgraph.graph.message import add_messages
-import asyncio
-import os
+from langchain_core.messages import HumanMessage, SystemMessage
 
+# -----------------------------
+# FastAPI App
+# -----------------------------
+app = FastAPI()
+
+@app.get("/chat")
+def chat_page():
+    with open("chat.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+# -----------------------------
+# LLM Setup
+# -----------------------------
 ChatOpenAI.openai_api_key = os.getenv("OPENAI_API_KEY")
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.7,
+)
 
 
+# -----------------------------
+# LangGraph State
+# -----------------------------
 class ParallelState(TypedDict):
     query: str
     research_result: str
@@ -24,11 +46,13 @@ class ParallelState(TypedDict):
     final_synthesis: str
 
 
+# -----------------------------
+# Graph Construction
+# -----------------------------
 def create_parallel_research():
     """Three research agents working in parallel."""
 
     def research_agent(state: ParallelState) -> dict:
-        """Academic/factual research."""
         response = llm.invoke(
             [
                 SystemMessage(
@@ -40,7 +64,6 @@ def create_parallel_research():
         return {"research_result": response.content}
 
     def creative_agent(state: ParallelState) -> dict:
-        """Creative perspectives."""
         response = llm.invoke(
             [
                 SystemMessage(
@@ -52,7 +75,6 @@ def create_parallel_research():
         return {"creative_result": response.content}
 
     def technical_agent(state: ParallelState) -> dict:
-        """Technical analysis."""
         response = llm.invoke(
             [
                 SystemMessage(
@@ -64,7 +86,6 @@ def create_parallel_research():
         return {"technical_result": response.content}
 
     def synthesize(state: ParallelState) -> dict:
-        """Combine all perspectives."""
         synthesis_prompt = f"""Synthesize these three perspectives into a comprehensive response:
 
         RESEARCH: {state['research_result']}
@@ -74,7 +95,6 @@ def create_parallel_research():
         TECHNICAL: {state['technical_result']}
 
         Create a unified, well-structured response."""
-
         response = llm.invoke(
             [
                 SystemMessage(
@@ -87,16 +107,18 @@ def create_parallel_research():
 
     graph = StateGraph(ParallelState)
 
-    graph.add_node("research", research_agent)
-    graph.add_node("creative", creative_agent)
-    graph.add_node("technical", technical_agent)
-    graph.add_node("synthesize", synthesize)
+    # Nodes with simple "overwrite" reducers
+    graph.add_node("research", research_agent, reducer=lambda old, new: new)
+    graph.add_node("creative", creative_agent, reducer=lambda old, new: new)
+    graph.add_node("technical", technical_agent, reducer=lambda old, new: new)
+    graph.add_node("synthesize", synthesize, reducer=lambda old, new: new)
 
-    # Fan-out: START goes to all three agents
+    # Fan-out from START
     graph.add_edge(START, "research")
     graph.add_edge(START, "creative")
     graph.add_edge(START, "technical")
 
+    # Fan-in to synthesize
     graph.add_edge("research", "synthesize")
     graph.add_edge("creative", "synthesize")
     graph.add_edge("technical", "synthesize")
@@ -106,16 +128,48 @@ def create_parallel_research():
     return graph.compile()
 
 
-def demo_parallel_execution():
-    """Demo parallel agent execution."""
+# Create the agent once, for reuse in FastAPI
+qa = create_parallel_research()
 
-    agent = create_parallel_research()
+
+# -----------------------------
+# FastAPI Endpoint
+# -----------------------------
+@app.post("/ask")
+def ask_question(payload: dict):
+    # Accept either "query" or "message" from the frontend
+    user_input = payload.get("query") or payload.get("message")
+    if not user_input:
+        return {"error": "Missing 'query' or 'message' in request body."}
+
+    result = qa.invoke(
+        {
+            "query": user_input,
+            "research_result": "",
+            "creative_result": "",
+            "technical_result": "",
+            "final_synthesis": "",
+        }
+    )
+
+    return {
+        "research": str(result.get("research_result", "")),
+        "creative": str(result.get("creative_result", "")),
+        "technical": str(result.get("technical_result", "")),
+        "answer": str(result.get("final_synthesis", "")),
+    }
+
+
+# -----------------------------
+# Optional CLI Demo
+# -----------------------------
+def demo_parallel_execution():
 
     print("Parallel Agent Execution Demo:\n")
 
-    result = agent.invoke(
+    result = qa.invoke(
         {
-            "query": "qual e o futuro da advogada do previdencia em São jose dos campos",
+            "query": "qual é o futuro da advocacia previdenciária em São José dos Campos?",
             "research_result": "",
             "creative_result": "",
             "technical_result": "",
@@ -127,13 +181,14 @@ def demo_parallel_execution():
     print(f"\n[Research]\n{result['research_result'][:300]}...")
     print(f"\n[Creative]\n{result['creative_result'][:300]}...")
     print(f"\n[Technical]\n{result['technical_result'][:300]}...")
-
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"[SYNTHESIZED]\n{result['final_synthesis']}")
 
 
 
 if __name__ == "__main__":
     demo_parallel_execution()
-
-    #demo_map_reduce()
+    # Run server:
+    # uvicorn parallel_agents:app --reload
+    # Open:
+    # http://127.0.0.1:8000/chat
