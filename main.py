@@ -189,6 +189,6 @@ def demo_parallel_execution():
 if __name__ == "__main__":
     demo_parallel_execution()
     # Run server:
-    # uvicorn parallel_agents:app --reload
+    # uvicorn main:app --reload
     # Open:
     # http://127.0.0.1:8000/chat
