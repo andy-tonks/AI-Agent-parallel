@@ -18,10 +18,22 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # -----------------------------
 app = FastAPI()
 
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
 @app.get("/chat")
 def chat_page():
     with open("chat.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+        html = f.read()
+    return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
+
+
+# @app.get("/chat")
+# def chat_page():
+#     with open("chat.html", "r", encoding="utf-8") as f:
+#         return HTMLResponse(f.read())
 
 
 # -----------------------------
@@ -98,7 +110,7 @@ def create_parallel_research():
         response = llm.invoke(
             [
                 SystemMessage(
-                    content="You are an expert synthesizer. Combine multiple perspectives into coherent insights."
+                    content="You are an expert synthesizer. Combine multiple perspectives into coherent insights.  Use new paragraphs to format the response.content and provide a clear conclusion."
                 ),
                 HumanMessage(content=synthesis_prompt),
             ]
@@ -178,11 +190,11 @@ def demo_parallel_execution():
     )
 
     print("Individual Perspectives:")
-    print(f"\n[Research]\n{result['research_result'][:300]}...")
-    print(f"\n[Creative]\n{result['creative_result'][:300]}...")
-    print(f"\n[Technical]\n{result['technical_result'][:300]}...")
+    print(f"\n[Research]\n\n{result['research_result'][:300]}...")
+    print(f"\n[Creative]\n\n{result['creative_result'][:300]}...")
+    print(f"\n[Technical]\n\n{result['technical_result'][:300]}...")
     print(f"\n{'=' * 50}")
-    print(f"[SYNTHESIZED]\n{result['final_synthesis']}")
+    print(f"[SYNTHESIZED]\n\n{result['final_synthesis']}")
 
 
 
